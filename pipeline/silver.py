@@ -8,10 +8,36 @@ import duckdb
 try:
     import pipeline.utils as utils
     import pipeline.bronze as bronze
+    import pipeline.gate1 as gate1
 except ModuleNotFoundError:
     import utils as utils
     import bronze as bronze
+    import gate1 as gate1
 
+
+def _nullif_literal_nulls(con, table: str) -> int:
+    """
+    Convert literal 'NULL' strings to real SQL NULLs in every VARCHAR column
+    of the given table. Uses information_schema to discover columns dynamically,
+    so it's future-proof against new columns appearing in the source data.
+
+    Returns the number of VARCHAR columns that were processed.
+    """
+    schema, tname = table.split(".")
+    varchar_cols = [row[0] for row in con.execute(f"""
+        SELECT column_name FROM information_schema.columns
+        WHERE table_schema = '{schema}' AND table_name = '{tname}'
+          AND data_type = 'VARCHAR'
+    """).fetchall()]
+
+    if not varchar_cols:
+        return 0
+
+    set_clauses = ", ".join(f'"{c}" = NULLIF("{c}", \'NULL\')' for c in varchar_cols)
+    where_clauses = " OR ".join(f'"{c}" = \'NULL\'' for c in varchar_cols)
+    con.execute(f"UPDATE {table} SET {set_clauses} WHERE {where_clauses}")
+
+    return len(varchar_cols)
 
 def grain_split(quarter: str, bronze_table: str, db_path: str = "data/philgeps.duckdb") -> tuple[str, str]:
     """
@@ -65,13 +91,14 @@ def deduplicate(quarter: str, awards_raw_table: str, db_path: str = "data/philge
 
 def type_and_clean(quarter: str, deduped_table: str, db_path: str = "data/philgeps.duckdb") -> str:
     """
-    Casts money/date/numeric columns to real types, applies the two known
-    sentinel-value fixes (Item Budget -1, Contract Duration 0), and trims
-    whitespace on the free-text/entity columns known to need it.
+    Casts money/date/numeric columns to real types, applies the known
+    sentinel-value fixes (Item Budget -1, Contract Duration 0), trims
+    whitespace on the free-text/entity columns, and converts all literal
+    'NULL' strings to real SQL NULLs across every VARCHAR column.
 
-    Everything happens in ONE pass, built fresh from the deduped (still-text)
-    table - never layered on top of a previously-typed table - so there's
-    no risk of the overwrite bug we hit earlier in the project.
+    Everything is built fresh from the deduped (still-text) table - never
+    layered on top of a previously-typed table - so there's no risk of the
+    overwrite bug we hit earlier in the project.
     """
     con = duckdb.connect(db_path)
     con.execute("CREATE SCHEMA IF NOT EXISTS silver")
@@ -115,6 +142,14 @@ def type_and_clean(quarter: str, deduped_table: str, db_path: str = "data/philge
         WHERE TRY_CAST("Contract Amount" AS DOUBLE) != 0
     """)
 
+    # Convert literal 'NULL' strings → real NULLs across ALL VARCHAR columns.
+    # Done dynamically via information_schema so it's future-proof — any new
+    # text column added to the source data is automatically covered.
+    nullif_count = _nullif_literal_nulls(con, typed_table)
+    if nullif_count > 0:
+        print(f"[Silver: Type & Clean] {quarter}: converted literal 'NULL' strings "
+              f"to real NULLs in {nullif_count} VARCHAR column(s)")
+
     con.execute(f"""
         CREATE OR REPLACE TABLE {zero_table} AS
         SELECT * FROM {deduped_table}
@@ -130,11 +165,77 @@ def type_and_clean(quarter: str, deduped_table: str, db_path: str = "data/philge
     return typed_table
 
 
+def build_unique_items(quarter: str, typed_table: str, db_path: str = "data/philgeps.duckdb") -> str:
+    """
+    Builds/extends the item-level table used for embeddings later.
+ 
+    This is different from the row-level dedup already done in
+    deduplicate() - that step removed accidental exact-copy rows.
+    This step groups DIFFERENT, legitimate award transactions that
+    happen to describe the same real-world item (e.g. "Bond Paper A4"
+    bought by two different agencies in two different real purchases),
+    so each distinct item only needs to be embedded once.
+ 
+    item_id = MD5 hash of the lowercased Notice Title + Item Name +
+    Item Description, per the original project design. Lowercasing
+    first means casing differences don't create false-different items.
+ 
+    Unlike every other Silver table, unique_items is NOT quarter-prefixed
+    - it's one single table that accumulates across all quarters. Only
+    item_ids not already present get inserted, so re-running a quarter,
+    or running a new one, never creates duplicate item entries.
+ 
+    The "embedding" column is created here as an empty placeholder
+    (NULL for every row). Filling it in is Gold's job, not Silver's -
+    this function never touches that column's values, only its existence.
+    """
+    con = duckdb.connect(db_path)
+    con.execute("CREATE SCHEMA IF NOT EXISTS silver")
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS silver.unique_items (
+            item_id VARCHAR PRIMARY KEY,
+            "Notice Title" VARCHAR,
+            "Item Name" VARCHAR,
+            "Item Description" VARCHAR,
+            "UNSPSC Code" VARCHAR,
+            "UNSPSC Description" VARCHAR,
+            embedding DOUBLE[]
+        )
+    """)
+ 
+    before = con.execute("SELECT COUNT(*) FROM silver.unique_items").fetchone()[0]
+ 
+    con.execute(f"""
+        INSERT INTO silver.unique_items
+        SELECT DISTINCT ON (item_id)
+            item_id, "Notice Title", "Item Name", "Item Description",
+            "UNSPSC Code", "UNSPSC Description", NULL AS embedding
+        FROM (
+            SELECT
+                MD5(LOWER("Notice Title" || "Item Name" || "Item Description")) AS item_id,
+                "Notice Title", "Item Name", "Item Description",
+                "UNSPSC Code", "UNSPSC Description"
+            FROM {typed_table}
+        ) src
+        WHERE item_id NOT IN (SELECT item_id FROM silver.unique_items)
+    """)
+ 
+    after = con.execute("SELECT COUNT(*) FROM silver.unique_items").fetchone()[0]
+    print(f"[Silver: Unique Items] {quarter}: {after - before:,} new items added "
+          f"(total items so far: {after:,})")
+ 
+    con.close()
+    return "silver.unique_items"
+
+
+
 def run_silver(quarter: str, bronze_table: str, db_path: str = "data/philgeps.duckdb") -> str:
     """Runs the full Silver stage for one quarter, in order. Returns the final typed table name."""
     awards_raw_table, _ = grain_split(quarter, bronze_table, db_path)
     deduped_table = deduplicate(quarter, awards_raw_table, db_path)
     typed_table = type_and_clean(quarter, deduped_table, db_path)
+    build_unique_items(quarter, typed_table, db_path)
+    gate1.run_quality_gate(quarter, db_path)
     return typed_table
 
 

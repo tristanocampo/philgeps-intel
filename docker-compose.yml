@@ -1,0 +1,15 @@
+version: "3.8"
+
+services:
+  philgeps-intel:
+    build: .
+    container_name: philgeps_intel_app
+    ports:
+      - "8501:8501"
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=gemini-3.5-flash-lite
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
