@@ -27,7 +27,7 @@ This project satisfies all **9 official grading criteria** of the DataTalks.Club
 | # | Evaluation Criteria | Implementation Detail | Reference / Source | Score |
 |---|---|---|---|:---:|
 | **1** | **Problem Description** | Exhaustively documented procurement audit problem, grain mismatch, and real-world impact. | Section 1 above | **2 / 2** |
-| **2** | **Retrieval / RAG Flow** | Hybrid Search (HNSW Cosine Vector + BM25 via Reciprocal Rank Fusion) + Dynamic DuckDB SQL Agent. | [`pipeline/search.py`](pipeline/search.py) & [`rag/agent.py`](rag/agent.py) | **2 / 2** |
+| **2** | **Retrieval / RAG Flow** | Tri-Modal Query RAG: Chain-of-Thought SQL Agent (Tiered Schema, Dynamic Columns, 1-Shot Self-Healing) + Hybrid Search (HNSW Vector + BM25 FTS via RRF) + Context Isolation. | [`pipeline/search.py`](pipeline/search.py) & [`rag/agent.py`](rag/agent.py) | **2 / 2** |
 | **3** | **Retrieval Evaluation** | Evaluated on 50 LLM benchmark questions: **98.0% Hit Rate @ 5** and **0.913 MRR** (Vector vs BM25 vs Hybrid). | [`docs/RETRIEVAL_EVALUATION.md`](docs/RETRIEVAL_EVALUATION.md) | **2 / 2** |
 | **4** | **LLM Generation Evaluation** | **LLM-as-a-Judge** automated benchmark scoring Faithfulness (4.67/5), Relevance (4.75/5), Completeness (4.67/5). | [`docs/GENERATION_EVALUATION.md`](docs/GENERATION_EVALUATION.md) & [`eval/eval_generation.py`](eval/eval_generation.py) | **2 / 2** |
 | **5** | **User Interface** | Modern conversational Streamlit chat with attached interactive DuckDB data tables and 👍/👎 telemetry. | [`app/streamlit_app.py`](app/streamlit_app.py) | **2 / 2** |
@@ -57,10 +57,12 @@ This project satisfies all **9 official grading criteria** of the DataTalks.Club
    └── gold.unique_items: 152,352 unique items (Text-embedding-005 + HNSW Cosine Index + BM25 FTS)
          │
          ▼
-[ SCHEMA-AWARE DUAL AGENT ] (Gemini 3.5 Flash Lite)
-   ├── 🛡️ 4-Layer Defense-in-Depth Security (C++ read_only=True, AST Parser Whitelist, LIMIT Caps)
-   ├── ⚡ Tool 1: execute_duckdb_sql() -> <15ms analytical totals, rankings, dates, suppliers
-   └── 🔍 Tool 2: search_procurement_catalog() -> 98% Hit Rate@5 Hybrid Semantic Discovery
+[ TRI-MODAL QUERY RAG AGENT ] (Gemini 3.5 Flash Lite)
+   ├── 🛡️ Safe Execution Sandbox (Read-only DuckDB, AST Whitelist, LIMIT caps)
+   ├── 🧭 Chain-of-Thought Planner (Intent classification & dynamic column selection)
+   ├── ⚡ Tool 1: execute_duckdb_sql() -> Tiered schema, distinct values, 1-shot self-healing (<15ms)
+   ├── 🔍 Tool 2: search_procurement_catalog() -> 98% Hit Rate@5 Hybrid Semantic Discovery
+   └── 💬 Tool 3: direct_response() -> Out-of-scope & conversational context isolation (Zero pollution)
          │
          ▼
 [ SERVING & OBSERVABILITY LAYER ]
@@ -96,13 +98,13 @@ Evaluated using automated impartial LLM auditor grading (1 to 5 scale):
 
 ---
 
-## 🛡️ 5. 4-Layer Defense-in-Depth Security
+## 🛡️ 5. Query Security & Guardrails
 
-To prevent prompt injections, jailbreaks, or accidental database corruption:
-1. **Layer 1: C++ Engine-Level Read-Only Lock:** DuckDB connection is strictly initialized with `read_only=True`. The C++ storage layer physically blocks any write, drop, or alter instruction on disk.
-2. **Layer 2: Python SQL Parser & Whitelist Validator:** Rejects multi-statement execution (`;`), enforces statement prefix (`SELECT` or `WITH`), and blacklists administrative keywords (`DROP`, `DELETE`, `INSERT`, `UPDATE`, `ALTER`, `COPY`, `PRAGMA`).
-3. **Layer 3: Resource & DoS Sandbox:** Automatically caps all generated queries at `LIMIT 100` to prevent RAM exhaustion.
-4. **Layer 4: XML Boundary Delimitation:** End-user prompts are wrapped in strict `<user_query>` tags and treated as untrusted text strings.
+To ensure safe, robust, and reliable read-only analytics:
+* **Read-Only Database Engine:** DuckDB connection is strictly initialized with `read_only=True`, physically blocking any write, drop, or alter instruction on disk.
+* **SQL Whitelist Validation:** An AST and token validator blocks multi-statement chaining (`;`) and administrative keywords (`DROP`, `DELETE`, `INSERT`, `UPDATE`, `ALTER`, `ATTACH`, `PRAGMA`).
+* **Resource Sandbox:** Automatically enforces `LIMIT 100` caps to protect memory and prevent Denial of Service.
+* **Prompt Isolation:** Wraps user input in `<user_query>` XML boundaries to prevent prompt injections and jailbreaks.
 
 ---
 
@@ -166,12 +168,15 @@ To prevent prompt injections, jailbreaks, or accidental database corruption:
 
 Try asking the assistant these questions in the chat interface:
 * **Supplier Rankings:** *"Who was the top supplier for DOH in 2025?"* $\rightarrow$ Identifies MEDICOTEK, INC. (₱437.2M across 3 contracts).
+* **Government Branch Breakdown:** *"What government branch has the highest spend?"* $\rightarrow$ Isolates Executive (₱668.0B), Legislative (₱256.4M), and Judiciary (₱121.7M).
+* **Exploratory Spend Profile:** *"What is the usual spend of PSA?"* $\rightarrow$ Profiles spending across Goods vs General Support Services instead of flat scalar totals.
 * **Classification Breakdown:** *"How much did the government spend on Civil Works compared to Goods?"* $\rightarrow$ Reports ₱512.0B for Civil Works vs ₱140.7B for Goods.
 * **Procurement Methods:** *"Compare spending between Public Bidding and Small Value Procurement"* $\rightarrow$ Analyzes volume vs capital allocation.
 * **MSME Analysis:** *"Which Micro and Small enterprises won the largest contracts?"* $\rightarrow$ Highlights MSME leaders.
 * **Budget Savings:** *"How much government budget was saved compared to the Approved Budget (ABC)?"* $\rightarrow$ Computes ₱472.9B in taxpayer savings.
 * **Temporal Aggregations:** *"How much did PSA spend on Q1?"* $\rightarrow$ Reports ₱205.3M across 393 contracts.
 * **Catalog Discovery:** *"Find catering services for DOH in NCR"* $\rightarrow$ Retrieves top catering contractors via Vector + BM25 hybrid search.
+* **Out-of-Scope Isolation:** *"Teach me about python"* $\rightarrow$ Graceful boundary disclaimer with zero database context pollution.
 
 ---
 
