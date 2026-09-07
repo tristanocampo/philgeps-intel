@@ -59,45 +59,44 @@ This project satisfies all **9 official grading criteria** of the DataTalks.Club
 
 ## 🏗️ 4. Architecture & Data Flow
 
+### A. Data Ingestion & Medallion Pipeline
 ```mermaid
 flowchart TD
-    subgraph INGESTION ["1. Data Ingestion & Medallion Pipeline"]
-        RAW["Raw Excel Spreadsheets<br/>(Quarterly PhilGEPS .xlsx)"] --> BRONZE["Bronze Layer (DuckDB)<br/>Raw Staging (all_varchar=true)"]
-        BRONZE --> SPLIT{"Grain-Split & Validation"}
-        SPLIT -->|"No Award Declared (126k rows)"| QUARANTINE["Quarantine Layer<br/>Unawarded Tenders"]
-        SPLIT -->|"Award-Grain Cleaned (342k rows)"| SILVER["Silver Layer (DuckDB)<br/>Cleaned Types & Normalization"]
-        SILVER --> GOLD_AWARDS[("gold.all_awards<br/>159,819 Contracts (48 Typed Columns)")]
-        SILVER --> GOLD_ITEMS[("gold.unique_items<br/>152,352 Items (HNSW Vector + BM25)")]
-    end
+    RAW["Raw Excel Spreadsheets<br/>Quarterly PhilGEPS .xlsx"] --> BRONZE["Bronze Layer (DuckDB)<br/>Raw Staging (all_varchar=true)"]
+    BRONZE --> SPLIT{"Grain-Split & Validation"}
+    SPLIT -->|"No Award Declared (126k rows)"| QUARANTINE["Quarantine Layer<br/>Unawarded Tenders"]
+    SPLIT -->|"Award-Grain Cleaned (342k rows)"| SILVER["Silver Layer (DuckDB)<br/>Cleaned Types & Normalization"]
+    SILVER --> GOLD_AWARDS[("gold.all_awards<br/>159,819 Contracts (48 Typed Columns)")]
+    SILVER --> GOLD_ITEMS[("gold.unique_items<br/>152,352 Items (HNSW Vector + BM25)")]
+```
 
-    subgraph AGENT ["2. Tri-Modal Query RAG Agent (Gemini 3.5 Flash Lite)"]
-        USER_Q["User / Auditor Query"] --> PLANNER["Chain-of-Thought Planner<br/>(Intent Classification & Dynamic Column Selection)"]
-        PLANNER --> ROUTER{"Tri-Modal Router"}
-        
-        ROUTER -->|"Analytics & Rankings"| TOOL_SQL["Tool 1: execute_duckdb_sql()"]
-        ROUTER -->|"Product / Item Discovery"| TOOL_CATALOG["Tool 2: search_procurement_catalog()"]
-        ROUTER -->|"Conversational / Out-of-Scope"| TOOL_DIRECT["Tool 3: direct_response()"]
-        
-        TOOL_SQL --> SECURITY["4-Layer Security Sandbox<br/>(Read-Only C++, AST Whitelist, LIMIT 100)"]
-        SECURITY --> DUCKDB_EXEC[("DuckDB Analytical Engine<br/>(gold.all_awards <15ms)")]
-        DUCKDB_EXEC --> RETRY_CHECK{"Execution Success?"}
-        RETRY_CHECK -->|"Syntax Error"| REPAIR["1-Shot Self-Healing Repair Loop"]
-        REPAIR --> DUCKDB_EXEC
-        RETRY_CHECK -->|"Rows Returned"| SYNTHESIS["Auditor Synthesis Prompt<br/>(Structured ₱ Report & Citations)"]
-        
-        TOOL_CATALOG --> HYBRID["Hybrid Search Engine<br/>(Vector + BM25 FTS via RRF)"]
-        HYBRID --> SYNTHESIS
-        
-        TOOL_DIRECT --> DIRECT_RESP["Direct Assistant Response<br/>(Zero Context Pollution)"]
-    end
-
-    subgraph SERVING ["3. Serving & Observability Layer"]
-        SYNTHESIS --> STREAMLIT["Streamlit Web Application<br/>(Chat Interface & Collapsible Data Tables)"]
-        DIRECT_RESP --> STREAMLIT
-        STREAMLIT --> FEEDBACK["User Feedback<br/>(Thumbs Up / Thumbs Down)"]
-        FEEDBACK --> METRICS_DB[("SQLite Telemetry (data/metrics.db)<br/>Tokens, USD Cost, Latency & Feedback")]
-        STREAMLIT --> DASHBOARD["System Telemetry Dashboard<br/>(KPI Cards, Latency Charts, Query Audit Log)"]
-    end
+### B. Tri-Modal Query RAG & Serving Architecture
+```mermaid
+flowchart TD
+    USER_Q["User / Auditor Query"] --> PLANNER["Chain-of-Thought Planner<br/>(Intent Classification & Dynamic Columns)"]
+    PLANNER --> ROUTER{"Tri-Modal Router"}
+    
+    ROUTER -->|"Analytics & Rankings"| TOOL_SQL["Tool 1: execute_duckdb_sql()"]
+    ROUTER -->|"Product / Item Discovery"| TOOL_CATALOG["Tool 2: search_procurement_catalog()"]
+    ROUTER -->|"Conversational / Out-of-Scope"| TOOL_DIRECT["Tool 3: direct_response()"]
+    
+    TOOL_SQL --> SECURITY["4-Layer Security Sandbox<br/>(Read-Only C++, AST Whitelist, LIMIT 100)"]
+    SECURITY --> DUCKDB_EXEC[("DuckDB Analytical Engine<br/>gold.all_awards")]
+    DUCKDB_EXEC --> RETRY_CHECK{"Execution Success?"}
+    RETRY_CHECK -->|"Syntax Error"| REPAIR["1-Shot Self-Healing Repair Loop"]
+    REPAIR --> DUCKDB_EXEC
+    RETRY_CHECK -->|"Rows Returned"| SYNTHESIS["Auditor Synthesis Prompt<br/>(Structured ₱ Report & Citations)"]
+    
+    TOOL_CATALOG --> HYBRID["Hybrid Search Engine<br/>(Vector + BM25 FTS via RRF)"]
+    HYBRID --> SYNTHESIS
+    
+    TOOL_DIRECT --> DIRECT_RESP["Direct Assistant Response<br/>(Zero Context Pollution)"]
+    
+    SYNTHESIS --> STREAMLIT["Streamlit Web Application<br/>(Chat Interface & Collapsible Tables)"]
+    DIRECT_RESP --> STREAMLIT
+    STREAMLIT --> FEEDBACK["User Feedback<br/>(Thumbs Up / Down)"]
+    FEEDBACK --> METRICS_DB[("SQLite Telemetry (data/metrics.db)<br/>Tokens, USD Cost, Latency")]
+    STREAMLIT --> DASHBOARD["System Telemetry Dashboard<br/>(KPI Cards, Charts, Audit Log)"]
 ```
 
 ---
