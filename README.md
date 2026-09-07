@@ -10,13 +10,15 @@
 
 ---
 
-## 📌 1. Project Overview & Problem Statement
+## 📌 1. Problem Statement
 
-Public procurement in the Philippines accounts for hundreds of billions of pesos in annual taxpayer spending. While official procurement notices are mandated to be published on the **Philippine Government Electronic Procurement System (PhilGEPS)**, analyzing this data in practice has historically been nearly impossible for journalists, auditors, and citizens:
-- **Massive & Messy Data:** Over 1.8 million records annually published across fragmented quarterly `.xlsx` spreadsheets (~300MB per quarter) riddled with unformatted currency strings, Excel serial number dates, sentinel values (`-1`, `0`), and inconsistent agency naming.
-- **The "Top-K Truncation Trap":** Traditional semantic search engines fail on quantitative questions (e.g. *"How much did PSA spend on Q1?"* or *"Who was the top supplier for DOH?"*) because retrieving top-5 text chunks cannot aggregate numbers across hundreds of contracts, leading to mathematical hallucinations.
+Public procurement in the Philippines accounts for hundreds of billions of pesos in annual taxpayer funds across national agencies, state universities, and local government units. While official procurement notices are mandated to be published on the **Philippine Government Electronic Procurement System (PhilGEPS)** under Republic Act No. 9184, analyzing this public data in practice has historically been nearly impossible for journalists, civic auditors, and citizens:
 
-**PhilGEPS Intelligence** solves this through a **Schema-Aware Tool-Using Agent** that couples a high-performance **DuckDB Analytical Engine** (<15ms SQL aggregations) with **Predicate-Pushdown Hybrid Retrieval** (HNSW Vector + BM25 FTS, 98% Hit Rate @ 5), protected by a **4-Layer Defense-in-Depth Security Model** and served via an interactive **Streamlit Conversational UI & Observability Dashboard**.
+* **Massive & Messy Data:** Over 1.8 million records are published annually across fragmented quarterly `.xlsx` spreadsheets (~300MB per file) riddled with unformatted currency strings, Excel serial number dates, sentinel values (`-1`, `0`), and inconsistent agency naming conventions.
+* **The "Grain Mismatch" Dilemma:** Tender notices and award notices are conflated within the same raw files. Out of 469,569 rows in a single quarter, over 126,000 are unawarded bids, failed tenders, or parked notices that distort fiscal totals if not properly quarantined.
+* **The "Top-K Truncation Trap":** Traditional semantic search and naive RAG architectures fail catastrophically on quantitative questions (e.g. *"How much did PSA spend on Q1?"* or *"Who was the top supplier for DOH?"*). Vector similarity retrieval only fetches the top 5 chunks, making it impossible to aggregate numbers across hundreds of contracts and leading to severe mathematical hallucinations.
+
+**PhilGEPS Intelligence** solves this through a **Tri-Modal Query RAG Agent** that couples a high-performance **DuckDB Analytical Engine** (<15ms SQL aggregations) with **Predicate-Pushdown Hybrid Retrieval** (HNSW Vector + BM25 FTS, 98% Hit Rate @ 5), protected by query guardrails and served via an interactive **Streamlit Conversational UI & Observability Dashboard**.
 
 <p align="center">
   <img src="docs/philgeps-intel_demo.gif" width="850" alt="PhilGEPS Intelligence Interactive Assistant Demo">
@@ -24,13 +26,26 @@ Public procurement in the Philippines accounts for hundreds of billions of pesos
 
 ---
 
-## 🎯 2. LLM Zoomcamp Evaluation Rubric Compliance
+## 📂 2. Data Sources & Procurement Scope
+
+All procurement records analyzed by this system originate from official, publicly accessible Philippine open government portals:
+
+* **Primary Source:** [PhilGEPS Open Data Portal](https://philgeps.gov.ph/#open-data)
+* **Dataset Scope:** 2025 Philippine Public Procurement Records (`data/raw/2025/`)
+* **Raw Ingestion Scale:** 469,569 raw rows across quarterly `.xlsx` releases (~300MB uncompressed)
+* **Analytical Warehouse:** 159,819 verified contract awards across 48 typed attributes stored in the DuckDB Gold Medallion layer (`data/philgeps.duckdb`)
+* **Catalog Index:** 152,352 unique procurement items indexed with Vertex AI `text-embedding-005` (HNSW Cosine Vector Index) and DuckDB Full-Text Search (BM25)
+* **Statutory Framework:** Republic Act No. 9184 (*Government Procurement Reform Act*) and the Philippine Open Data transparency initiative
+
+---
+
+## 🎯 3. LLM Zoomcamp Evaluation Rubric Compliance
 
 This project satisfies all **9 official grading criteria** of the DataTalks.Club LLM Zoomcamp capstone:
 
 | # | Evaluation Criteria | Implementation Detail | Reference / Source | Score |
 |---|---|---|---|:---:|
-| **1** | **Problem Description** | Exhaustively documented procurement audit problem, grain mismatch, and real-world impact. | Section 1 above | **2 / 2** |
+| **1** | **Problem Description** | Exhaustively documented procurement audit problem, grain mismatch, and real-world impact. | Section 1 & 2 above | **2 / 2** |
 | **2** | **Retrieval / RAG Flow** | Tri-Modal Query RAG: Chain-of-Thought SQL Agent (Tiered Schema, Dynamic Columns, 1-Shot Self-Healing) + Hybrid Search (HNSW Vector + BM25 FTS via RRF) + Context Isolation. | [`pipeline/search.py`](pipeline/search.py) & [`rag/agent.py`](rag/agent.py) | **2 / 2** |
 | **3** | **Retrieval Evaluation** | Evaluated on 50 LLM benchmark questions: **98.0% Hit Rate @ 5** and **0.913 MRR** (Vector vs BM25 vs Hybrid). | [`docs/RETRIEVAL_EVALUATION.md`](docs/RETRIEVAL_EVALUATION.md) | **2 / 2** |
 | **4** | **LLM Generation Evaluation** | **LLM-as-a-Judge** automated benchmark scoring Faithfulness (4.67/5), Relevance (4.75/5), Completeness (4.67/5). | [`docs/GENERATION_EVALUATION.md`](docs/GENERATION_EVALUATION.md) & [`eval/eval_generation.py`](eval/eval_generation.py) | **2 / 2** |
@@ -38,50 +53,56 @@ This project satisfies all **9 official grading criteria** of the DataTalks.Club
 | **6** | **Data Ingestion Pipeline** | Medallion architecture (Bronze $\rightarrow$ Silver $\rightarrow$ Gold) in DuckDB; 48 typed columns, grain split quarantine. | [`pipeline/silver.py`](pipeline/silver.py) & [`pipeline/gold.py`](pipeline/gold.py) | **2 / 2** |
 | **7** | **Monitoring & Observability** | Persistent SQLite telemetry (`data/metrics.db`) tracking query audit trails, latencies, prompt & total token volume, estimated USD costs, and 👍/👎 sentiment. | [`app/monitoring.py`](app/monitoring.py) & Streamlit Tab 2 | **2 / 2** |
 | **8** | **Containerization** | Production-ready `Dockerfile` and `docker-compose.yml` for multi-platform 1-click startup. | [`Dockerfile`](Dockerfile) & [`docker-compose.yml`](docker-compose.yml) | **2 / 2** |
-| **9** | **Reproducibility** | Clean dependency specifications, automated verification test suite, step-by-step setup guide. | Section 5 below & [`tests/test_agent.py`](tests/test_agent.py) | **2 / 2** |
+| **9** | **Reproducibility** | Clean dependency specifications, automated verification test suite, step-by-step setup guide. | Section 8 below & [`tests/test_agent.py`](tests/test_agent.py) | **2 / 2** |
 
 ---
 
-## 🏗️ 3. Architecture & Data Flow
+## 🏗️ 4. Architecture & Data Flow
 
-```
-[ RAW EXCEL FILES ] (~300MB, 469,569 rows)
-         │
-         ▼
-[ BRONZE LAYER ] (DuckDB read_xlsx all_varchar=true)
-         │
-         ▼
-[ SILVER LAYER ] (Grain-Split & Type Enforcement)
-   ├── quarantine_no_award: 126,664 unawarded tender rows (Parked, NOT deleted)
-   └── all_awards: 342,905 award-grain rows (Cleaned DECIMAL, DATE, INTEGER, Whitespace)
-         │
-         ▼
-[ GOLD MEDALLION WAREHOUSE ]
-   ├── gold.all_awards: 159,819 cleaned contract awards (48 typed columns + supplier index)
-   └── gold.unique_items: 152,352 unique items (Text-embedding-005 + HNSW Cosine Index + BM25 FTS)
-         │
-         ▼
-[ TRI-MODAL QUERY RAG AGENT ] (Gemini 3.5 Flash Lite)
-   ├── 🛡️ Safe Execution Sandbox (Read-only DuckDB, AST Whitelist, LIMIT caps)
-   ├── 🧭 Chain-of-Thought Planner (Intent classification & dynamic column selection)
-   ├── ⚡ Tool 1: execute_duckdb_sql() -> Tiered schema, distinct values, 1-shot self-healing (<15ms)
-   ├── 🔍 Tool 2: search_procurement_catalog() -> 98% Hit Rate@5 Hybrid Semantic Discovery
-   └── 💬 Tool 3: direct_response() -> Out-of-scope & conversational context isolation (Zero pollution)
-         │
-         ▼
-[ SERVING & OBSERVABILITY LAYER ]
-   ├── 💬 Streamlit Chat Interface (ChatGPT-style thread + Collapsible Data Tables)
-   ├── 📊 Streamlit Telemetry Dashboard (Live latency charts, KPI cards, user satisfaction)
-   └── 💾 Persistent SQLite Telemetry (data/metrics.db)
-```
+```mermaid
+flowchart TD
+    subgraph INGESTION ["1. Data Ingestion & Medallion Pipeline"]
+        RAW["Raw Excel Spreadsheets<br/>(Quarterly PhilGEPS .xlsx)"] --> BRONZE["Bronze Layer (DuckDB)<br/>Raw Staging (all_varchar=true)"]
+        BRONZE --> SPLIT{"Grain-Split & Validation"}
+        SPLIT -->|"No Award Declared (126k rows)"| QUARANTINE["Quarantine Layer<br/>Unawarded Tenders"]
+        SPLIT -->|"Award-Grain Cleaned (342k rows)"| SILVER["Silver Layer (DuckDB)<br/>Cleaned Types & Normalization"]
+        SILVER --> GOLD_AWARDS[("gold.all_awards<br/>159,819 Contracts (48 Typed Columns)")]
+        SILVER --> GOLD_ITEMS[("gold.unique_items<br/>152,352 Items (HNSW Vector + BM25)")]
+    end
 
-<p align="center">
-  <img src="docs/telemetry_dashboard.jpg" width="850" alt="PhilGEPS Intelligence Operational Telemetry Dashboard">
-</p>
+    subgraph AGENT ["2. Tri-Modal Query RAG Agent (Gemini 3.5 Flash Lite)"]
+        USER_Q["User / Auditor Query"] --> PLANNER["Chain-of-Thought Planner<br/>(Intent Classification & Dynamic Column Selection)"]
+        PLANNER --> ROUTER{"Tri-Modal Router"}
+        
+        ROUTER -->|"Analytics & Rankings"| TOOL_SQL["Tool 1: execute_duckdb_sql()"]
+        ROUTER -->|"Product / Item Discovery"| TOOL_CATALOG["Tool 2: search_procurement_catalog()"]
+        ROUTER -->|"Conversational / Out-of-Scope"| TOOL_DIRECT["Tool 3: direct_response()"]
+        
+        TOOL_SQL --> SECURITY["4-Layer Security Sandbox<br/>(Read-Only C++, AST Whitelist, LIMIT 100)"]
+        SECURITY --> DUCKDB_EXEC[("DuckDB Analytical Engine<br/>(gold.all_awards <15ms)")]
+        DUCKDB_EXEC --> RETRY_CHECK{"Execution Success?"}
+        RETRY_CHECK -->|"Syntax Error"| REPAIR["1-Shot Self-Healing Repair Loop"]
+        REPAIR --> DUCKDB_EXEC
+        RETRY_CHECK -->|"Rows Returned"| SYNTHESIS["Auditor Synthesis Prompt<br/>(Structured ₱ Report & Citations)"]
+        
+        TOOL_CATALOG --> HYBRID["Hybrid Search Engine<br/>(Vector + BM25 FTS via RRF)"]
+        HYBRID --> SYNTHESIS
+        
+        TOOL_DIRECT --> DIRECT_RESP["Direct Assistant Response<br/>(Zero Context Pollution)"]
+    end
+
+    subgraph SERVING ["3. Serving & Observability Layer"]
+        SYNTHESIS --> STREAMLIT["Streamlit Web Application<br/>(Chat Interface & Collapsible Data Tables)"]
+        DIRECT_RESP --> STREAMLIT
+        STREAMLIT --> FEEDBACK["User Feedback<br/>(Thumbs Up / Thumbs Down)"]
+        FEEDBACK --> METRICS_DB[("SQLite Telemetry (data/metrics.db)<br/>Tokens, USD Cost, Latency & Feedback")]
+        STREAMLIT --> DASHBOARD["System Telemetry Dashboard<br/>(KPI Cards, Latency Charts, Query Audit Log)"]
+    end
+```
 
 ---
 
-## 📊 4. Benchmark & Evaluation Results
+## 📊 5. Benchmark & Evaluation Results
 
 ### Gate 2: Retrieval Evaluation (50 Evaluation Queries)
 Evaluated across 50 high-entropy questions using Mean Reciprocal Rank (MRR) and Hit Rate @ 5:
@@ -110,7 +131,21 @@ Evaluated using automated impartial LLM auditor grading (1 to 5 scale):
 
 ---
 
-## 🛡️ 5. Query Security & Guardrails
+## 📈 6. System Telemetry, Monitoring & Cost Observability
+
+PhilGEPS Intelligence features a persistent **SQLite Telemetry & Observability Engine** (`data/metrics.db`) integrated into a dedicated Streamlit monitoring dashboard:
+
+<p align="center">
+  <img src="docs/telemetry_dashboard.jpg" width="850" alt="PhilGEPS Intelligence Operational Telemetry Dashboard">
+</p>
+
+* **Real-Time Token & Cost Accounting:** Every query records exact prompt, candidate, and total token consumption via Google Gemini API metadata, computing estimated USD costs ($0.075 / 1M prompt tokens, $0.30 / 1M candidate tokens).
+* **Live Operational Metrics:** Executive 5-card KPI summary displaying total queries logged, total tokens consumed, estimated expenditure, average latency, and user approval rate.
+* **Interactive Query Audit Trail:** Comprehensive query log table detailing latency, prompt tokens, total tokens, fractional cent cost, and citizen feedback sentiment (👍 / 👎).
+
+---
+
+## 🛡️ 7. Query Security & Guardrails
 
 To ensure safe, robust, and reliable read-only analytics:
 * **Read-Only Database Engine:** DuckDB connection is strictly initialized with `read_only=True`, physically blocking any write, drop, or alter instruction on disk.
@@ -120,7 +155,7 @@ To ensure safe, robust, and reliable read-only analytics:
 
 ---
 
-## 🚀 6. Quickstart & How to Run
+## 🚀 8. Quickstart & How to Run
 
 ### Option A: 1-Click Docker Setup (Recommended)
 
@@ -176,7 +211,7 @@ To ensure safe, robust, and reliable read-only analytics:
 
 ---
 
-## 💡 7. Real-World Audit & Public Issue Queries to Try
+## 💡 9. Real-World Audit & Public Issue Queries to Try
 
 Try asking the assistant these high-impact investigative inquiries in the chat interface:
 * **Flood Control Infrastructure (DPWH):** *"What were the largest flood control and drainage contracts awarded by DPWH?"* $\rightarrow$ Isolates multi-billion peso flood mitigation packages (e.g. ₱1.95B Ranao River basin and Pasig-Marikina floodway).
@@ -191,5 +226,5 @@ Try asking the assistant these high-impact investigative inquiries in the chat i
 
 ---
 
-## 📄 License & Course Attribution
+## 📄 10. License & Course Attribution
 Built by **Tristan Ocampo** for the **DataTalks.Club LLM Zoomcamp** Capstone Project (2024–2025 Cohort). Released under the [MIT License](LICENSE).
