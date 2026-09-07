@@ -198,6 +198,10 @@ def ask_philgeps(
         "matched_items_count": len(data_rows),
         "total_spend": total_spend,
         "latency_ms": agent_res["latency_ms"],
+        "prompt_tokens": agent_res.get("prompt_tokens", 0),
+        "completion_tokens": agent_res.get("completion_tokens", 0),
+        "total_tokens": agent_res.get("total_tokens", 0),
+        "cost_usd": agent_res.get("cost_usd", 0.0),
         "used_vector": agent_res["tool_used"] == "catalog_search",
         "used_llm": True,
         # Backward compatibility aliases

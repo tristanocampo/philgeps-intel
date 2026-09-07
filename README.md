@@ -18,6 +18,10 @@ Public procurement in the Philippines accounts for hundreds of billions of pesos
 
 **PhilGEPS Intelligence** solves this through a **Schema-Aware Tool-Using Agent** that couples a high-performance **DuckDB Analytical Engine** (<15ms SQL aggregations) with **Predicate-Pushdown Hybrid Retrieval** (HNSW Vector + BM25 FTS, 98% Hit Rate @ 5), protected by a **4-Layer Defense-in-Depth Security Model** and served via an interactive **Streamlit Conversational UI & Observability Dashboard**.
 
+<p align="center">
+  <img src="docs/philgeps-intel_demo.gif" width="850" alt="PhilGEPS Intelligence Interactive Assistant Demo">
+</p>
+
 ---
 
 ## 🎯 2. LLM Zoomcamp Evaluation Rubric Compliance
@@ -32,7 +36,7 @@ This project satisfies all **9 official grading criteria** of the DataTalks.Club
 | **4** | **LLM Generation Evaluation** | **LLM-as-a-Judge** automated benchmark scoring Faithfulness (4.67/5), Relevance (4.75/5), Completeness (4.67/5). | [`docs/GENERATION_EVALUATION.md`](docs/GENERATION_EVALUATION.md) & [`eval/eval_generation.py`](eval/eval_generation.py) | **2 / 2** |
 | **5** | **User Interface** | Modern conversational Streamlit chat with attached interactive DuckDB data tables and 👍/👎 telemetry. | [`app/streamlit_app.py`](app/streamlit_app.py) | **2 / 2** |
 | **6** | **Data Ingestion Pipeline** | Medallion architecture (Bronze $\rightarrow$ Silver $\rightarrow$ Gold) in DuckDB; 48 typed columns, grain split quarantine. | [`pipeline/silver.py`](pipeline/silver.py) & [`pipeline/gold.py`](pipeline/gold.py) | **2 / 2** |
-| **7** | **Monitoring & Observability** | Persistent SQLite telemetry (`data/metrics.db`) logging queries, latencies, feedback + live visual Streamlit tab. | [`app/monitoring.py`](app/monitoring.py) & Streamlit Tab 2 | **2 / 2** |
+| **7** | **Monitoring & Observability** | Persistent SQLite telemetry (`data/metrics.db`) tracking query audit trails, latencies, prompt & total token volume, estimated USD costs, and 👍/👎 sentiment. | [`app/monitoring.py`](app/monitoring.py) & Streamlit Tab 2 | **2 / 2** |
 | **8** | **Containerization** | Production-ready `Dockerfile` and `docker-compose.yml` for multi-platform 1-click startup. | [`Dockerfile`](Dockerfile) & [`docker-compose.yml`](docker-compose.yml) | **2 / 2** |
 | **9** | **Reproducibility** | Clean dependency specifications, automated verification test suite, step-by-step setup guide. | Section 5 below & [`tests/test_agent.py`](tests/test_agent.py) | **2 / 2** |
 
@@ -71,6 +75,10 @@ This project satisfies all **9 official grading criteria** of the DataTalks.Club
    └── 💾 Persistent SQLite Telemetry (data/metrics.db)
 ```
 
+<p align="center">
+  <img src="docs/telemetry_dashboard.jpg" width="850" alt="PhilGEPS Intelligence Operational Telemetry Dashboard">
+</p>
+
 ---
 
 ## 📊 4. Benchmark & Evaluation Results
@@ -83,6 +91,10 @@ Evaluated across 50 high-entropy questions using Mean Reciprocal Rank (MRR) and 
 | **Vector Search (HNSW Cosine)** | 92.0% | 0.853 | 108.0 ms |
 | **Keyword Search (BM25 FTS)** | 88.0% | 0.747 | 230.5 ms |
 | **Hybrid Search (Vector + BM25 via RRF)** | **98.0%** | **0.913** | 338.5 ms |
+
+<p align="center">
+  <img src="docs/eval_retrieval_metrics.png" width="850" alt="Retrieval Evaluation Benchmark (Hit Rate @ 5 and MRR)">
+</p>
 
 ### Gate 3: End-to-End Generation Evaluation (LLM-as-a-Judge)
 Evaluated using automated impartial LLM auditor grading (1 to 5 scale):
@@ -164,19 +176,18 @@ To ensure safe, robust, and reliable read-only analytics:
 
 ---
 
-## 💡 7. Example Inquiries to Try
+## 💡 7. Real-World Audit & Public Issue Queries to Try
 
-Try asking the assistant these questions in the chat interface:
-* **Supplier Rankings:** *"Who was the top supplier for DOH in 2025?"* $\rightarrow$ Identifies MEDICOTEK, INC. (₱437.2M across 3 contracts).
-* **Government Branch Breakdown:** *"What government branch has the highest spend?"* $\rightarrow$ Isolates Executive (₱668.0B), Legislative (₱256.4M), and Judiciary (₱121.7M).
-* **Exploratory Spend Profile:** *"What is the usual spend of PSA?"* $\rightarrow$ Profiles spending across Goods vs General Support Services instead of flat scalar totals.
-* **Classification Breakdown:** *"How much did the government spend on Civil Works compared to Goods?"* $\rightarrow$ Reports ₱512.0B for Civil Works vs ₱140.7B for Goods.
-* **Procurement Methods:** *"Compare spending between Public Bidding and Small Value Procurement"* $\rightarrow$ Analyzes volume vs capital allocation.
-* **MSME Analysis:** *"Which Micro and Small enterprises won the largest contracts?"* $\rightarrow$ Highlights MSME leaders.
-* **Budget Savings:** *"How much government budget was saved compared to the Approved Budget (ABC)?"* $\rightarrow$ Computes ₱472.9B in taxpayer savings.
-* **Temporal Aggregations:** *"How much did PSA spend on Q1?"* $\rightarrow$ Reports ₱205.3M across 393 contracts.
-* **Catalog Discovery:** *"Find catering services for DOH in NCR"* $\rightarrow$ Retrieves top catering contractors via Vector + BM25 hybrid search.
-* **Out-of-Scope Isolation:** *"Teach me about python"* $\rightarrow$ Graceful boundary disclaimer with zero database context pollution.
+Try asking the assistant these high-impact investigative inquiries in the chat interface:
+* **Flood Control Infrastructure (DPWH):** *"What were the largest flood control and drainage contracts awarded by DPWH?"* $\rightarrow$ Isolates multi-billion peso flood mitigation packages (e.g. ₱1.95B Ranao River basin and Pasig-Marikina floodway).
+* **Education Spending & School Supplies (DepEd):** *"Who were the top suppliers and contractors for the Department of Education (DepEd)?"* $\rightarrow$ Identifies top construction and textbook printing contractors (Hauwei Builders, APO Production Unit, National Printing Office).
+* **Competitive Bidding vs Alternative Modes:** *"Compare spending between Public Bidding and alternative modes like Direct Contracting"* $\rightarrow$ Compares competitive tenders (₱619.5B) against non-bidded/emergency awards.
+* **Healthcare & Pharmaceutical Supply Chain:** *"Who were the top medical equipment and logistics contractors for DOH in 2025?"* $\rightarrow$ Analyzes MEDICOTEK, INC. (₱437.2M), GREPCOR DIAMONDE, and cold-chain logistics providers.
+* **Agricultural Modernization & Irrigation (NIA):** *"How much funding was awarded for irrigation projects across the country?"* $\rightarrow$ Aggregates over ₱21.0B in farm irrigation infrastructure across 1,720 contracts.
+* **Local Government Unit (LGU) Big-Ticket Projects:** *"What are the highest-value infrastructure projects awarded by Local Government Units (LGUs)?"* $\rightarrow$ Surfaces city and municipal civil works (e.g. ₱600M Carcar Arena).
+* **MSME Economic Inclusion:** *"Which Micro and Small Enterprises (MSMEs) won the largest contracts?"* $\rightarrow$ Tracks small business awards across government tenders.
+* **Disaster Relief Goods Discovery:** *"Find tenders for emergency relief goods and food packs"* $\rightarrow$ Retrieves hybrid search matches across DSWD and regional disaster relief supplies.
+* **Domain Boundary Guardrail:** *"Teach me about python"* $\rightarrow$ Graceful scope boundary refusal with zero database context pollution.
 
 ---
 

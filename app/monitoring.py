@@ -26,9 +26,22 @@ def init_monitoring_db(db_path: str = METRICS_DB_PATH):
             latency_ms REAL,
             used_vector INTEGER,
             used_llm INTEGER,
-            feedback TEXT
+            feedback TEXT,
+            prompt_tokens INTEGER DEFAULT 0,
+            total_tokens INTEGER DEFAULT 0,
+            cost_usd REAL DEFAULT 0.0
         )
     """)
+    # Migration check for existing SQLite databases
+    cursor.execute("PRAGMA table_info(query_logs)")
+    cols = {row[1] for row in cursor.fetchall()}
+    if "prompt_tokens" not in cols:
+        cursor.execute("ALTER TABLE query_logs ADD COLUMN prompt_tokens INTEGER DEFAULT 0")
+    if "total_tokens" not in cols:
+        cursor.execute("ALTER TABLE query_logs ADD COLUMN total_tokens INTEGER DEFAULT 0")
+    if "cost_usd" not in cols:
+        cursor.execute("ALTER TABLE query_logs ADD COLUMN cost_usd REAL DEFAULT 0.0")
+
     conn.commit()
     conn.close()
 
@@ -40,9 +53,12 @@ def log_query(
     latency_ms: float,
     used_vector: bool,
     used_llm: bool,
+    prompt_tokens: int = 0,
+    total_tokens: int = 0,
+    cost_usd: float = 0.0,
     db_path: str = METRICS_DB_PATH
 ) -> int:
-    """Logs a query execution and returns the created log record id."""
+    """Logs a query execution with token and cost metrics and returns the created log record id."""
     init_monitoring_db(db_path)
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
@@ -51,11 +67,13 @@ def log_query(
     cursor.execute("""
         INSERT INTO query_logs (
             timestamp, query, matched_items_count, total_spend,
-            latency_ms, used_vector, used_llm, feedback
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+            latency_ms, used_vector, used_llm, feedback,
+            prompt_tokens, total_tokens, cost_usd
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
     """, (
         now_str, query, matched_items_count, total_spend,
-        latency_ms, 1 if used_vector else 0, 1 if used_llm else 0
+        latency_ms, 1 if used_vector else 0, 1 if used_llm else 0,
+        prompt_tokens, total_tokens, cost_usd
     ))
     log_id = cursor.lastrowid
     conn.commit()
@@ -75,13 +93,24 @@ def record_feedback(log_id: int, feedback: str, db_path: str = METRICS_DB_PATH):
 
 
 def get_monitoring_summary(db_path: str = METRICS_DB_PATH) -> dict[str, Any]:
-    """Returns high-level statistics from the query logs."""
+    """Returns high-level statistics including token volume and estimated cost from query logs."""
     init_monitoring_db(db_path)
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
-    cursor.execute("SELECT COUNT(*), AVG(latency_ms) FROM query_logs")
-    total_queries, avg_lat = cursor.fetchone()
+    cursor.execute("""
+        SELECT 
+            COUNT(*), 
+            AVG(latency_ms), 
+            COALESCE(SUM(total_tokens), 0), 
+            COALESCE(SUM(cost_usd), 0.0) 
+        FROM query_logs
+    """)
+    row = cursor.fetchone()
+    total_queries = row[0] or 0
+    avg_lat = row[1] or 0.0
+    total_tokens = int(row[2] or 0)
+    total_cost_usd = float(row[3] or 0.0)
 
     cursor.execute("SELECT COUNT(*) FROM query_logs WHERE feedback LIKE '%up%'")
     thumbs_up = cursor.fetchone()[0]
@@ -90,7 +119,7 @@ def get_monitoring_summary(db_path: str = METRICS_DB_PATH) -> dict[str, Any]:
     thumbs_down = cursor.fetchone()[0]
 
     cursor.execute("""
-        SELECT id, timestamp, query, total_spend, latency_ms, feedback 
+        SELECT id, timestamp, query, prompt_tokens, total_tokens, cost_usd, latency_ms, feedback 
         FROM query_logs 
         ORDER BY id DESC LIMIT 10
     """)
@@ -101,8 +130,10 @@ def get_monitoring_summary(db_path: str = METRICS_DB_PATH) -> dict[str, Any]:
     satisfaction_rate = (thumbs_up / total_fb * 100) if total_fb > 0 else 100.0
 
     return {
-        "total_queries": total_queries or 0,
-        "avg_latency_ms": avg_lat or 0.0,
+        "total_queries": total_queries,
+        "avg_latency_ms": avg_lat,
+        "total_tokens": total_tokens,
+        "total_cost_usd": total_cost_usd,
         "thumbs_up": thumbs_up or 0,
         "thumbs_down": thumbs_down or 0,
         "satisfaction_rate": satisfaction_rate,
@@ -121,9 +152,10 @@ def get_all_query_logs_df(db_path: str = METRICS_DB_PATH, limit: int = 150):
                 id, 
                 timestamp, 
                 query, 
-                ROUND(latency_ms, 1) AS latency_ms, 
-                ROUND(total_spend, 2) AS total_spend,
-                matched_items_count,
+                ROUND(latency_ms, 0) AS latency_ms, 
+                COALESCE(prompt_tokens, 0) AS prompt_tokens,
+                COALESCE(total_tokens, 0) AS total_tokens,
+                COALESCE(cost_usd, 0.0) AS cost_usd,
                 COALESCE(feedback, 'None') AS feedback
             FROM query_logs 
             ORDER BY id DESC 

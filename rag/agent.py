@@ -403,6 +403,10 @@ JSON Plan:"""
                     temperature=0.0
                 )
             )
+            usage = getattr(resp, "usage_metadata", None)
+            p_tok = getattr(usage, "prompt_token_count", 0) or 0
+            c_tok = getattr(usage, "candidates_token_count", 0) or 0
+
             raw = resp.text.strip()
             if raw.startswith("```"):
                 raw = re.sub(r"^```(?:json)?\s*", "", raw)
@@ -410,6 +414,8 @@ JSON Plan:"""
 
             try:
                 plan = json.loads(raw)
+                plan["_prompt_tokens"] = p_tok
+                plan["_candidates_tokens"] = c_tok
                 return plan
             except Exception as json_err:
                 # Resilient fallback: extract fields via regex if internal quotes in SQL broke json.loads
@@ -433,7 +439,9 @@ JSON Plan:"""
                         "search_terms": None,
                         "agency_filter": None,
                         "region_filter": None,
-                        "reasoning": "Recovered via resilient regex parser"
+                        "reasoning": "Recovered via resilient regex parser",
+                        "_prompt_tokens": p_tok,
+                        "_candidates_tokens": c_tok
                     }
                 raise json_err
 
@@ -466,6 +474,9 @@ JSON Plan:"""
         context_str = ""
         sql_executed = None
 
+        total_prompt_tokens = plan.get("_prompt_tokens", 0)
+        total_completion_tokens = plan.get("_candidates_tokens", 0)
+
         if tool_used == "sql" and plan.get("sql_query"):
             sql_executed = plan["sql_query"]
             sql_res = execute_duckdb_sql(sql_executed)
@@ -495,6 +506,10 @@ Rules:
                             model=self.model_name,
                             contents=repair_prompt
                         )
+                        fix_usage = getattr(fix_resp, "usage_metadata", None)
+                        total_prompt_tokens += getattr(fix_usage, "prompt_token_count", 0) or 0
+                        total_completion_tokens += getattr(fix_usage, "candidates_token_count", 0) or 0
+
                         repaired_sql = fix_resp.text.strip().replace("```sql", "").replace("```", "").strip()
                         repaired_res = execute_duckdb_sql(repaired_sql)
                         if repaired_res["success"]:
@@ -548,6 +563,9 @@ AUTHORITATIVE AUDITOR ANSWER:"""
                     model=self.model_name,
                     contents=synthesis_prompt
                 )
+                synth_usage = getattr(resp, "usage_metadata", None)
+                total_prompt_tokens += getattr(synth_usage, "prompt_token_count", 0) or 0
+                total_completion_tokens += getattr(synth_usage, "candidates_token_count", 0) or 0
                 answer = resp.text.strip()
             except Exception as e:
                 answer = f"Data was retrieved successfully, but synthesis encountered: {e}."
@@ -555,6 +573,9 @@ AUTHORITATIVE AUDITOR ANSWER:"""
             answer = "Data retrieved from DuckDB. (LLM client offline)."
 
         latency_ms = (time.perf_counter() - t0) * 1000
+        total_tokens = total_prompt_tokens + total_completion_tokens
+        # Gemini 3.5 Flash Lite pricing: $0.075 / 1M prompt tokens, $0.30 / 1M candidate tokens
+        cost_usd = (total_prompt_tokens * 0.075 + total_completion_tokens * 0.30) / 1_000_000.0
 
         return {
             "query": user_query,
@@ -563,6 +584,10 @@ AUTHORITATIVE AUDITOR ANSWER:"""
             "sql_query": sql_executed,
             "data_rows": data_rows,
             "latency_ms": latency_ms,
+            "prompt_tokens": total_prompt_tokens,
+            "completion_tokens": total_completion_tokens,
+            "total_tokens": total_tokens,
+            "cost_usd": cost_usd,
             "plan": plan
         }
 

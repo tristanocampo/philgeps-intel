@@ -31,15 +31,9 @@ if "messages" not in st.session_state:
         {
             "role": "assistant",
             "content": (
-                "👋 **Hello! I am PhilGEPS Intelligence.**\n\n"
-                "I am connected to official Philippine public procurement records. Ask me anything about:\n"
-                "- **Contractor / Supplier Rankings:** *\"Who was the top supplier for DOH in 2025?\"*\n"
-                "- **Procurement Classification:** *\"How much did the government spend on Civil Works vs Goods?\"*\n"
-                "- **Procurement Methods:** *\"Compare spending between Public Bidding and Small Value Procurement\"*\n"
-                "- **MSME & Small Business:** *\"Which Micro and Small enterprises won the largest contracts?\"*\n"
-                "- **Budget Savings (ABC vs Spent):** *\"How much budget was saved compared to Approved Budget (ABC)?\"*\n"
-                "- **Agency Spending:** *\"How much did PSA spend on Q1?\"*\n"
-                "- **Catalog Discovery:** *\"Find catering services for DOH in NCR\"*"
+                "👋 **Hello! I am PhilGEPS Intelligence**, your autonomous public procurement auditor.  \n"
+                "I analyze **159,819 official Philippine government contract awards** across agencies, LGUs, and suppliers.  \n"
+                "Select any investigative prompt from the sidebar to begin, or type your own question below."
             ),
             "data_rows": None,
             "sql_query": None,
@@ -53,31 +47,18 @@ with st.sidebar:
     st.header("💡 Example Inquiries")
     st.caption("Click any prompt to ask immediately:")
     example_prompts = [
-        "Who was the top supplier for DOH in 2025?",
-        "How much did the government spend on Civil Works compared to Goods?",
-        "Compare spending between Public Bidding and Small Value Procurement",
-        "Which Micro and Small enterprises (MSMEs) won the largest contracts?",
-        "How much government budget was saved compared to the Approved Budget of the Contract?",
-        "How much did PSA spend on Q1?",
-        "What was the largest contract awarded in Region VII?",
-        "Find catering services for DOH in NCR"
+        "What were the largest flood control and drainage contracts awarded by DPWH?",
+        "Who were the top suppliers and contractors for the Department of Education (DepEd)?",
+        "Compare spending between Public Bidding and alternative modes like Direct Contracting"
     ]
     for ex in example_prompts:
         if st.button(ex, use_container_width=True):
             st.session_state["queued_prompt"] = ex
 
     st.markdown("---")
-    st.subheader("🛡️ Architecture & Security")
-    st.markdown(
-        """
-        - **Engine:** DuckDB (`read_only=True` C++ Lock)
-        - **Records:** 159,819 Contracts (`gold.all_awards`)
-        - **Catalog:** 152,352 Unique Items (`gold.unique_items`)
-        - **Retrieval:** 98% Hit Rate@5 Hybrid Search
-        - **Guardrails:** 4-Layer Injection & AST Parser Shield
-        - **Telemetry:** SQLite (`data/metrics.db`)
-        """
-    )
+    st.markdown("📂 **Official Data Source**")
+    st.markdown("[PhilGEPS Open Data Portal](https://philgeps.gov.ph/#open-data)")
+    st.caption("Philippine Government Electronic Procurement System (Public Awards & Tenders).")
 
     st.markdown("---")
     if st.button("🗑️ Clear Conversation", use_container_width=True):
@@ -95,9 +76,17 @@ with tab_chat:
 
             # Display metadata tags if available
             if msg.get("tool_used"):
-                col_tag, col_lat = st.columns([4, 1])
-                tool_label = "⚡ Analytical DuckDB SQL" if msg["tool_used"] == "sql" else "🔍 Hybrid Catalog Search (Vector + BM25)"
+                col_tag, col_tok, col_lat = st.columns([3, 1, 1])
+                if msg["tool_used"] == "sql":
+                    tool_label = "⚡ Analytical DuckDB SQL"
+                elif msg["tool_used"] == "catalog_search":
+                    tool_label = "🔍 Hybrid Catalog Search (Vector + BM25)"
+                else:
+                    tool_label = "💬 Direct Assistant Response"
                 col_tag.caption(f"**Execution Mode:** {tool_label}")
+                if msg.get("total_tokens"):
+                    cost_str = f"${msg['cost_usd']:.5f}" if msg.get("cost_usd") is not None else "$0.00"
+                    col_tok.caption(f"🪙 **{msg['total_tokens']:,} tok** ({cost_str})")
                 if msg.get("latency_ms"):
                     col_lat.caption(f"⏱️ **{msg['latency_ms']:.0f} ms**")
 
@@ -153,7 +142,10 @@ with tab_chat:
                     total_spend=res.get("total_spend", 0.0),
                     latency_ms=res.get("latency_ms", 0.0),
                     used_vector=res.get("used_vector", False),
-                    used_llm=res.get("used_llm", True)
+                    used_llm=res.get("used_llm", True),
+                    prompt_tokens=res.get("prompt_tokens", 0),
+                    total_tokens=res.get("total_tokens", 0),
+                    cost_usd=res.get("cost_usd", 0.0)
                 )
 
                 answer = res.get("answer", "No answer could be generated.")
@@ -161,14 +153,24 @@ with tab_chat:
                 sql_query = res.get("sql_query")
                 tool_used = res.get("tool_used")
                 latency_ms = res.get("latency_ms")
+                prompt_tokens = res.get("prompt_tokens", 0)
+                total_tokens = res.get("total_tokens", 0)
+                cost_usd = res.get("cost_usd", 0.0)
 
                 # Render Answer
                 st.markdown(answer)
 
                 # Render Metadata & Data Table
-                col_tag, col_lat = st.columns([4, 1])
-                tool_label = "⚡ Analytical DuckDB SQL" if tool_used == "sql" else "🔍 Hybrid Catalog Search (Vector + BM25)"
+                col_tag, col_tok, col_lat = st.columns([3, 1, 1])
+                if tool_used == "sql":
+                    tool_label = "⚡ Analytical DuckDB SQL"
+                elif tool_used == "catalog_search":
+                    tool_label = "🔍 Hybrid Catalog Search (Vector + BM25)"
+                else:
+                    tool_label = "💬 Direct Assistant Response"
                 col_tag.caption(f"**Execution Mode:** {tool_label}")
+                if total_tokens:
+                    col_tok.caption(f"🪙 **{total_tokens:,} tok** (${cost_usd:.5f})")
                 if latency_ms:
                     col_lat.caption(f"⏱️ **{latency_ms:.0f} ms**")
 
@@ -187,6 +189,9 @@ with tab_chat:
                     "data_rows": data_rows,
                     "sql_query": sql_query,
                     "latency_ms": latency_ms,
+                    "prompt_tokens": prompt_tokens,
+                    "total_tokens": total_tokens,
+                    "cost_usd": cost_usd,
                     "log_id": log_id
                 })
 
@@ -199,17 +204,19 @@ with tab_telemetry:
     summary = get_monitoring_summary()
     df_logs = get_all_query_logs_df(limit=100)
 
-    # 1. KPI Cards
-    col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+    # 1. KPI Cards Row (5 metrics)
+    col_m1, col_m2, col_m3, col_m4, col_m5 = st.columns(5)
     with col_m1:
         st.metric("Total Queries Logged", f"{summary['total_queries']:,}")
     with col_m2:
-        st.metric("Average Latency", f"{summary['avg_latency_ms']:.0f} ms")
+        st.metric("Total Tokens Processed", f"{summary.get('total_tokens', 0):,}")
     with col_m3:
+        st.metric("Est. Total LLM Cost", f"${summary.get('total_cost_usd', 0.0):.4f} USD", "Free Tier ($0.00)")
+    with col_m4:
+        st.metric("Average Latency", f"{summary['avg_latency_ms']:.0f} ms")
+    with col_m5:
         sat_text = f"{summary['satisfaction_rate']:.1f}%" if (summary['thumbs_up'] + summary['thumbs_down']) > 0 else "100%"
         st.metric("User Approval (👍)", sat_text, f"{summary['thumbs_up']} 👍 / {summary['thumbs_down']} 👎")
-    with col_m4:
-        st.metric("Warehouse Scale", "159,819 awards", "48 columns gold layer")
 
     st.markdown("---")
 
@@ -245,8 +252,9 @@ with tab_telemetry:
                 "timestamp": "Timestamp (UTC)",
                 "query": "User Query String",
                 "latency_ms": st.column_config.NumberColumn("Latency (ms)", format="%.0f ms"),
-                "total_spend": st.column_config.NumberColumn("Reported Spend (₱)", format="₱%,.2f"),
-                "matched_items_count": "Records",
+                "prompt_tokens": st.column_config.NumberColumn("Prompt Tokens", format="%d"),
+                "total_tokens": st.column_config.NumberColumn("Total Tokens", format="%d"),
+                "cost_usd": st.column_config.NumberColumn("Est. Cost (USD)", format="$%.5f"),
                 "feedback": "User Feedback"
             }
         )
